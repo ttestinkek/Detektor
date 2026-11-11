@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nesne Tespit Sistemi</title>
+<style>
+:root{--red:#ff2a44;--cy:#34e0ff;--tx:#e8f1f5;--mono:ui-monospace,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden}
+video,canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain}
+.glass{background:#06080ce6;border:1px solid #34e0ff33;border-radius:12px}
+#top{position:fixed;top:0;left:0;right:0;z-index:3;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 8px) 14px 8px;font:600 13px var(--mono);text-shadow:0 1px 3px #000}
+#top span{margin-left:14px}#top span:first-child{margin:0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:8px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:.2}}
+#panel{position:fixed;top:calc(env(safe-area-inset-top,0px) + 42px);right:12px;width:232px;z-index:3;padding:12px;display:none;font-size:13px}
+#panel.open{display:block}
+.row{display:flex;justify-content:space-between;align-items:center}
+.h{margin:12px 0 5px;color:#9fb4bd;font-size:12px}
+.meter{height:8px;border-radius:4px;background:#ffffff1c;overflow:hidden;margin-top:6px}
+.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2ee6a6,#ffc14d,#ff2a44);background-size:206px 100%}
+.chip{display:inline-block;margin:0 5px 5px 0;padding:3px 8px;border-radius:999px;background:#34e0ff22;border:1px solid #34e0ff55;font-size:12px}
+.chip.bad{background:#ff2a4430;border-color:var(--red)}
+.dim{color:#7d909a}
+#log{font:12px/1.5 var(--mono);color:#b8c8cf;min-height:20px}#log .bad{color:#ff8393}
+input[type=range]{width:100%;accent-color:var(--red)}
+#bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:3;display:flex;gap:2px;padding:6px}
+button{font:600 15px system-ui;min-width:46px;height:46px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--tx);cursor:pointer}
+button:hover,button:active{background:#34e0ff26}
+button:focus-visible{outline:2px solid var(--cy)}
+button:disabled{opacity:.5}
+#fl{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:4;transition:opacity .35s}
+#fl.on{opacity:.8;transition:none}
+#start{position:fixed;inset:0;z-index:6;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#0d1a22,#06080c 70%);text-align:center;padding:24px;transition:opacity .5s}
+#start.off{opacity:0;pointer-events:none}
+#start h1{margin:0;font-size:28px;letter-spacing:.02em}
+#msg{opacity:.75;font-size:14px;max-width:340px;line-height:1.5}
+.radar{width:120px;height:120px;border-radius:50%;border:2px solid #34e0ff66;background:conic-gradient(from 0deg,#34e0ff00 60%,#34e0ff99);animation:sp 2.2s linear infinite;box-shadow:0 0 40px #34e0ff33}
+@keyframes sp{to{transform:rotate(360deg)}}
+#go{background:var(--red);font-size:18px;height:54px;padding:0 32px;border-radius:12px}
+@media (prefers-reduced-motion:reduce){.radar,.dot{animation:none}}
+.glass{box-shadow:0 6px 18px #0008,inset 0 1px 0 #ffffff14}
+#top{background:linear-gradient(#06080ccc,#06080c00)}
+#spark{position:static;inset:auto;width:206px;height:32px;display:block}
+#fps,#clk{padding:3px 9px;border-radius:999px;background:#06080c99;border:1px solid #34e0ff33}
+select{width:100%;height:36px;border-radius:8px;border:1px solid #34e0ff44;background:#06080ccc;color:var(--tx);font:14px system-ui;padding:0 8px}
+#alarms{display:flex;gap:6px;flex-wrap:wrap}#alarms img{display:block;width:48px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--red)}
+.clean #panel,.clean #bar,.clean #top{opacity:0;pointer-events:none;transition:opacity .3s}
+</style>
+</head>
+<body>
+<video id="v" playsinline muted></video>
+<canvas id="c"></canvas>
+<div id="fl"></div>
+<div id="top"><span><i class="dot"></i><b id="st">Hazır</b></span><span><span id="fps"></span><span id="clk"></span></span></div>
+<div id="panel" class="glass">
+  <div class="row"><span>Tehdit seviyesi</span><b id="tl" style="color:#2ee6a6">GÜVENLİ</b></div>
+  <div class="meter"><i id="tm"></i></div>
+  <div class="h">Tespit hızı</div><canvas id="spark" width="412" height="64"></canvas><div class="h">Algılananlar</div><div id="cnt"><span class="dim">Nesne yok</span></div>
+  <div class="h">Olay kaydı</div><div id="log"></div>
+  <div class="h">Son alarmlar</div><div id="alarms"><span class="dim">Alarm yok</span></div>
+  <div class="h">Kamera kaynağı</div><select id="src" aria-label="Kamera kaynağı"></select>
+  <div class="h row"><span>Bıçak eşiği</span><b id="sv">%25</b></div>
+  <input id="sens" type="range" min="15" max="60" value="25" aria-label="Bıçak eşiği">
+  <div class="dim" style="font-size:11px;margin-top:4px">Düşük değer daha hassas, yanlış alarm da artar.</div>
+</div>
+<div id="bar" class="glass">
+  <button id="mode" aria-label="Model modu">⚡ Hızlı</button>
+  <button id="snd" aria-label="Ses">🔊</button>
+  <button id="shot" aria-label="Ekran görüntüsü">📷</button>
+  <button id="flip" aria-label="Kamerayı çevir">🔄</button>
+  <button id="pn" aria-label="Panel">☰</button>
+  <button id="fs" aria-label="Tam ekran">⛶</button>
+</div>
+<div id="start">
+  <div class="radar"></div>
+  <h1>Nesne Tespit Sistemi</h1>
+  <div id="msg">Gerçek zamanlı nesne tanıma ve takip. Bıçak veya makas görülürse hedef kilitlenir, alarm çalar.</div>
+  <button id="go">Sistemi başlat</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+<script type="module">
+import {ObjectDetector, FilesetResolver} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const $ = id => document.getElementById(id);
+const v = $('v'), c = $('c'), ctx = c.getContext('2d');
+const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const BASE = "https://storage.googleapis.com/mediapipe-models/object_detector/";
+const MODELS = {
+  fast: BASE + "efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+  acc:  BASE + "efficientdet_lite2/float32/1/efficientdet_lite2.tflite"
+};
+const TR = {person:'İnsan',bicycle:'Bisiklet',car:'Araba',motorcycle:'Motosiklet',airplane:'Uçak',bus:'Otobüs',train:'Tren',truck:'Kamyon',boat:'Tekne','traffic light':'Trafik lambası','fire hydrant':'Yangın musluğu','stop sign':'Dur tabelası','parking meter':'Parkmetre',bench:'Bank',bird:'Kuş',cat:'Kedi',dog:'Köpek',horse:'At',sheep:'Koyun',cow:'İnek',elephant:'Fil',bear:'Ayı',zebra:'Zebra',giraffe:'Zürafa',backpack:'Sırt çantası',umbrella:'Şemsiye',handbag:'Çanta',tie:'Kravat',suitcase:'Bavul',frisbee:'Frizbi',skis:'Kayak',snowboard:'Snowboard','sports ball':'Top',kite:'Uçurtma','baseball bat':'Beyzbol sopası','baseball glove':'Eldiven',skateboard:'Kaykay',surfboard:'Sörf tahtası','tennis racket':'Raket',bottle:'Şişe','wine glass':'Kadeh',cup:'Bardak',fork:'Çatal',knife:'BIÇAK',spoon:'Kaşık',bowl:'Kase',banana:'Muz',apple:'Elma',sandwich:'Sandviç',orange:'Portakal',broccoli:'Brokoli',carrot:'Havuç','hot dog':'Sosisli',pizza:'Pizza',donut:'Donut',cake:'Pasta',chair:'Sandalye',couch:'Koltuk','potted plant':'Bitki',bed:'Yatak','dining table':'Masa',toilet:'Tuvalet',tv:'Televizyon',laptop:'Laptop',mouse:'Fare',remote:'Kumanda',keyboard:'Klavye','cell phone':'Telefon',microwave:'Mikrodalga',oven:'Fırın',toaster:'Tost makinesi',sink:'Lavabo',refrigerator:'Buzdolabı',book:'Kitap',clock:'Saat',vase:'Vazo',scissors:'MAKAS','teddy bear':'Ayıcık','hair drier':'Saç kurutma',toothbrush:'Diş fırçası'};
+const DANGER = new Set(['knife', 'scissors']);
+const RED = '#ff2a44', CY = '#34e0ff';
+
+const MODE_LABEL = {fast: '⚡ Hızlı', acc: '🎯 Hassas', ultra: '🔥 Ultra'};
+const MODEL_OF = {fast: 'fast', acc: 'acc', ultra: 'acc'};
+const AMB = '#ffc14d';
+let vision, det = null, mode = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'fast' : (navigator.hardwareConcurrency >= 6 ? 'acc' : 'fast');
+let curModel = '', switching = false, autoPerf = true, slow = 0, usedDelegate = 'GPU', lastSay = 0, tileOK = true, tileI = 0, rafN = 0, refreshHz = 60;
+const status = () => $('st').textContent = 'CANLI • ' + MODE_LABEL[mode].replace(/^\S+\s/, '') + (usedDelegate === 'CPU' ? ' (CPU)' : '');
+let facing = 'environment', stream, started = false, soundOn = true, ac, lastBeep = 0;
+let thr = 0.25, threat = 0, lastLv = '', lastCnt = 0, tracks = [], nextId = 1;
+let dCount = 0, dMs = 0, dT0 = performance.now(), hist = [];
+
+if (innerWidth > 700) $('panel').classList.add('open');
+if (!document.documentElement.requestFullscreen) $('fs').hidden = true;
+$('mode').textContent = MODE_LABEL[mode];
+setInterval(() => $('clk').textContent = new Date().toLocaleTimeString('tr-TR'), 1000);
+
+function log(msg, bad) {
+  const d = document.createElement('div');
+  if (bad) d.className = 'bad';
+  d.textContent = new Date().toLocaleTimeString('tr-TR') + '  ' + msg;
+  $('log').prepend(d);
+  while ($('log').children.length > 5) $('log').lastChild.remove();
+}
+
+function beep() {
+  const n = performance.now();
+  if (!soundOn || !ac || n - lastBeep < 700) return;
+  lastBeep = n;
+  [880, 640].forEach((f, i) => {
+    const t0 = ac.currentTime + i * 0.17, o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
+    o.connect(g).connect(ac.destination);
+    o.start(t0); o.stop(t0 + 0.16);
+  });
+  navigator.vibrate?.(120);
+}
+
+async function loadDet(m) {
+  det?.close(); det = null;
+  $('st').textContent = 'Model yükleniyor…';
+  for (const delegate of ['GPU', 'CPU']) {
+    try {
+      det = await ObjectDetector.createFromOptions(vision, {
+        baseOptions: {modelAssetPath: MODELS[m], delegate},
+        runningMode: 'VIDEO', scoreThreshold: 0.15, maxResults: 25
+      });
+      usedDelegate = delegate;
+      return;
+    } catch (e) { console.warn(delegate, e); }
+  }
+  throw new Error('Model yüklenemedi. İnternet bağlantısını kontrol et.');
+}
+
+let hls = null, netUrl = '', netTok = 0;
+const wait = (p, ms) => Promise.race([p, new Promise((_, j) => setTimeout(() => j(new Error('Akış açılamadı (zaman aşımı)')), ms))]);
+
+function stopSrc() {
+  netTok++; hls?.destroy(); hls = null;
+  stream?.getTracks().forEach(t => t.stop()); stream = null;
+  v.onerror = null; v.pause(); v.removeAttribute('src'); v.srcObject = null;
+}
+
+async function ready() {
+  await wait(v.play(), 12000);
+  if (!v.videoWidth) await wait(new Promise(r => v.addEventListener('loadedmetadata', r, {once: true})), 12000);
+  c.width = v.videoWidth; c.height = v.videoHeight; tracks = [];
+}
+
+// Yerel kamera: webcam, USB kamera, HDMI yakalama kartı
+async function startCam(id) {
+  if (!navigator.mediaDevices) throw new Error('Yerel kamera için https veya localhost gerekir. Ağ kamerası için adresin sonuna ?src=AKIŞ_ADRESİ ekle.');
+  stopSrc(); netUrl = ''; v.removeAttribute('crossorigin');
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {...(id ? {deviceId: {exact: id}} : {facingMode: facing}), width: {ideal: 1280}, height: {ideal: 720}}
+  });
+  v.srcObject = stream;
+  await ready();
+}
+
+// Ağ kamerası: HLS (.m3u8), MP4/WebM akışı. Koparsa 3 sn sonra kendi kendine yeniden bağlanır.
+async function startNet(url, first = true) {
+  stopSrc(); netUrl = url;
+  const tok = netTok;
+  const retry = () => setTimeout(() => { if (tok === netTok) startNet(url, false); }, 3000);
+  v.crossOrigin = 'anonymous';
+  if (/\.m3u8/i.test(url) && window.Hls?.isSupported()) {
+    hls = new Hls({lowLatencyMode: true});
+    hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) retry(); });
+    hls.loadSource(url); hls.attachMedia(v);
+  } else {
+    v.src = url; v.onerror = retry;
+  }
+  try { await ready(); } catch (e) { if (first) throw e; retry(); }
+}
+
+async function listSources() {
+  const s = $('src'); s.innerHTML = '';
+  if (!navigator.mediaDevices) { s.add(new Option('Ağ kamerası (URL)…', 'net')); return; }
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  devs.forEach((d, i) => s.add(new Option(d.label || 'Kamera ' + (i + 1), 'cam:' + d.deviceId)));
+  s.add(new Option('Ağ kamerası (URL)…', 'net'));
+  const cur = stream?.getVideoTracks()[0]?.getSettings().deviceId;
+  s.value = netUrl ? 'net' : (devs.some(d => d.deviceId === cur) ? 'cam:' + cur : s.options[0].value);
+}
+
+/* ---------- Tespit + takip ---------- */
+const cx = o => o.x + o.w / 2, cy = o => o.y + o.h / 2;
+const iou = (a, b) => {
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), X = Math.min(a.x + a.w, b.x + b.w), Y = Math.min(a.y + a.h, b.y + b.h);
+  const i = Math.max(0, X - x) * Math.max(0, Y - y);
+  return i / (a.w * a.h + b.w * b.h - i || 1);
+};
+const vis = t => DANGER.has(t.name) ? (t.bad || t.sus) : (t.hits >= 2 && t.score >= 0.3);
+
+const same = (a, b) => {
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), X = Math.min(a.x + a.w, b.x + b.w), Y = Math.min(a.y + a.h, b.y + b.h);
+  const i = Math.max(0, X - x) * Math.max(0, Y - y), ua = a.w * a.h, ub = b.w * b.h, mn = Math.min(ua, ub);
+  return i / (ua + ub - i || 1) > 0.45 || (i / (mn || 1) > 0.8 && mn / Math.max(ua, ub) > 0.4);
+};
+// Sınıflar arası NMS: üst üste binen farklı etiketleri tek nesnede birleştir, alternatifleri kanıt olarak sakla
+function nms(ds) {
+  ds.sort((a, b) => b.score - a.score);
+  const keep = [];
+  for (const d of ds) {
+    const m = keep.find(k => same(d, k));
+    if (m) m.c.push([d.name, d.score]); else keep.push({...d, c: [[d.name, d.score]]});
+  }
+  return keep;
+}
+
+function update(dets, now) {
+  const pairs = [];
+  tracks.forEach((t, i) => {
+    const dt = Math.min(0.3, (now - t.t) / 1000), p = {x: t.x + t.vx * dt, y: t.y + t.vy * dt, w: t.w, h: t.h};
+    dets.forEach((d, j) => {
+      const dist = Math.hypot(cx(p) - cx(d), cy(p) - cy(d)), m = Math.max(p.w, p.h, d.w, d.h);
+      const a = iou(p, d) + Math.max(0, 1 - dist / (1.3 * m)) * 0.5;
+      if (a > 0.3) pairs.push([a, i, j]);
+    });
+  });
+  pairs.sort((a, b) => b[0] - a[0]);
+  const ut = new Set(), ud = new Set();
+  for (const [, i, j] of pairs) {
+    if (ut.has(i) || ud.has(j)) continue;
+    ut.add(i); ud.add(j);
+    const t = tracks[i], d = dets[j], dt = Math.max(0.016, (now - t.t) / 1000), ox = cx(t), oy = cy(t);
+    for (const k of ['x', 'y', 'w', 'h']) t[k] += (d[k] - t[k]) * 0.6;
+    t.vx += ((cx(t) - ox) / dt - t.vx) * 0.4; t.vy += ((cy(t) - oy) / dt - t.vy) * 0.4;
+    for (const k in t.ev) t.ev[k] *= 0.8;
+    d.c.forEach(([n, s]) => t.ev[n] = (t.ev[n] || 0) + s * 0.2);
+    t.t = now; t.hits++; t.miss = 0;
+    t.trail.push([cx(t), cy(t)]); if (t.trail.length > 40) t.trail.shift();
+  }
+  dets.forEach((d, j) => {
+    if (ud.has(j) || d.score < (DANGER.has(d.name) ? thr * 0.75 : 0.5)) return;
+    const t = {x: d.x, y: d.y, w: d.w, h: d.h, dx: d.x, dy: d.y, dw: d.w, dh: d.h, vx: 0, vy: 0, t: now,
+      hits: 1, miss: 0, id: nextId++, ev: {}, trail: [[cx(d), cy(d)]], lock: 0, bad: false, name: '', score: 0};
+    d.c.forEach(([n, s]) => t.ev[n] = Math.max(t.ev[n] || 0, s));
+    tracks.push(t);
+  });
+  tracks.forEach((t, i) => {
+    if (!ut.has(i) && t.t !== now) {
+      t.miss++; t.vx *= 0.85; t.vy *= 0.85;
+      for (const k in t.ev) t.ev[k] *= t.bad ? 0.96 : 0.93;
+    }
+    let b = '', s = 0;
+    for (const k in t.ev) if (t.ev[k] > s) { s = t.ev[k]; b = k; }
+    t.name = b; t.score = s;
+    const was = t.bad;
+    t.bad = DANGER.has(b) && s >= (was ? thr * 0.7 : thr);
+    t.sus = !t.bad && DANGER.has(b) && s >= thr * 0.75 && t.hits >= 3;
+    if (t.bad && !was) {
+      t.lock = now; log(TR[b] + ' algılandı #' + t.id, 1);
+      say('Dikkat, ' + TR[b].toLocaleLowerCase('tr-TR') + ' algılandı');
+      setTimeout(() => { try { addAlarm(); } catch (e) { console.warn(e); } }, 350);
+    }
+  });
+  tracks = tracks.filter(t => {
+    if (now - t.t < (t.bad ? 1200 : 700)) return true;
+    if (t.bad) log(TR[t.name] + ' görüş dışı #' + t.id);
+    return false;
+  });
+}
+
+const tc = document.createElement('canvas'), tx = tc.getContext('2d');
+const TILES = [[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0.5]];
+const conv = (res, ox, oy, k, edge) => res.detections.map(d => {
+  const c0 = d.categories[0], b = d.boundingBox;
+  return {name: c0.categoryName, score: c0.score, x: ox + b.originX * k, y: oy + b.originY * k, w: b.width * k, h: b.height * k,
+    ex: edge && (b.originX < 4 || b.originY < 4 || b.originX + b.width > tc.width - 4 || b.originY + b.height > tc.height - 4)};
+});
+
+// Ultra mod: tam kare + dönüşümlü yakınlaştırılmış pencere (küçük/ince nesneler için)
+async function detect() {
+  if (!det || v.readyState < 2) return;
+  const d0 = det, W = v.videoWidth, H = v.videoHeight;
+  if (c.width !== W) { c.width = W; c.height = H; }
+  const t0 = performance.now();
+  let raw = conv(d0.detectForVideo(v, t0), 0, 0, 1, false);
+  if (mode === 'ultra' && tileOK) {
+    await new Promise(r => requestAnimationFrame(() => r()));   // iki çıkarım arasında ekran çizilsin
+    if (det !== d0) return;
+    try {
+      const [fx, fy] = TILES[tileI++ % TILES.length], sw = W * 0.6, sh = H * 0.6, sx = fx * (W - sw), sy = fy * (H - sh);
+      const tw = 512, th = Math.round(512 * sh / sw);
+      if (tc.width !== tw || tc.height !== th) { tc.width = tw; tc.height = th; }
+      tx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th);
+      raw = raw.concat(conv(d0.detectForVideo(tc, performance.now()), sx, sy, sw / tw, true).filter(d => !d.ex));
+    } catch (e) { tileOK = false; log('Yakınlaştırma geçişi desteklenmiyor'); console.warn(e); }
+  }
+  dMs += performance.now() - t0; dCount++;
+  const lo = Math.min(thr * 0.75, 0.3);
+  update(nms(raw.filter(d => d.score >= (DANGER.has(d.name) ? lo : 0.3))), t0);
+}
+
+// Tespit döngüsü görüntüden bağımsız: her yeni kamera karesinde çalışır
+function pump() {
+  const next = () => v.requestVideoFrameCallback ? v.requestVideoFrameCallback(go) : setTimeout(go, 16);
+  const go = async () => {
+    const t = performance.now();
+    try { await detect(); } catch (e) { console.warn(e); }
+    setTimeout(next, Math.min(60, (performance.now() - t) * 0.5));   // işlemciye nefes aldır, ekran akıcı kalsın
+  };
+  next();
+}
+
+/* ---------- Çizim (ekran hızında, hareket tahminiyle akıcı) ---------- */
+const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); };
+
+function brackets(x, y, w, h, L) {
+  ctx.beginPath();
+  [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([px, py, sx, sy]) => {
+    ctx.moveTo(px + sx * L, py); ctx.lineTo(px, py); ctx.lineTo(px, py + sy * L);
+  });
+  ctx.stroke();
+}
+
+function pos(t, now) {
+  const dt = Math.min(0.25, (now - t.t) / 1000), k = 0.35;
+  t.dx += (t.x + t.vx * dt - t.dx) * k; t.dy += (t.y + t.vy * dt - t.dy) * k;
+  t.dw += (t.w - t.dw) * k; t.dh += (t.h - t.dh) * k;
+}
+
+function label(txt, col, bad, u, x, y, score) {
+  ctx.font = `700 ${13 * u}px system-ui,sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const w = ctx.measureText(txt).width + 18 * u, h = 24 * u, ly = y > h + 4 * u ? y - h - 4 * u : y + 4 * u;
+  rr(x, ly, w, h, 7 * u); ctx.fillStyle = bad ? RED : 'rgba(6,8,12,.8)'; ctx.fill();
+  ctx.lineWidth = u; ctx.strokeStyle = col; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.fillText(txt, x + 9 * u, ly + h / 2 - u);
+  ctx.fillStyle = bad ? '#fffa' : col; ctx.fillRect(x + 9 * u, ly + h - 5 * u, (w - 18 * u) * Math.min(1, score), 2 * u);
+}
+
+function radar(vt, now, W, H, u) {
+  const R = 56 * u, X = 30 * u + R, Y = 78 * u + R;
+  ctx.fillStyle = 'rgba(6,8,12,.6)'; ctx.beginPath(); ctx.arc(X, Y, R, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#34e0ff66'; ctx.lineWidth = u;
+  for (const r of [R, R * 0.66, R * 0.33]) { ctx.beginPath(); ctx.arc(X, Y, r, 0, 7); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(X - R, Y); ctx.lineTo(X + R, Y); ctx.moveTo(X, Y - R); ctx.lineTo(X, Y + R); ctx.stroke();
+  const a = (now / 1600) % 1 * 6.283;
+  ctx.strokeStyle = '#34e0ffcc'; ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X + Math.cos(a) * R, Y + Math.sin(a) * R); ctx.stroke();
+  for (const t of vt) {
+    let dx = ((t.dx + t.dw / 2) / W - 0.5) * 2 * R, dy = ((t.dy + t.dh / 2) / H - 0.5) * 2 * R;
+    const m = Math.hypot(dx, dy); if (m > R * 0.9) { dx *= R * 0.9 / m; dy *= R * 0.9 / m; }
+    ctx.fillStyle = t.bad ? RED : t.sus ? AMB : CY; ctx.beginPath(); ctx.arc(X + dx, Y + dy, (t.bad ? 5 : 3) * u, 0, 7); ctx.fill();
+  }
+}
+
+function draw(now) {
+  const W = c.width, H = c.height, u = Math.max(1.5, W / 640);
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = '#ffffff80'; ctx.lineWidth = u * 2;
+  brackets(14 * u, 14 * u, W - 28 * u, H - 28 * u, 26 * u);
+  const sy = ((now / 3200) % 1) * H, g = ctx.createLinearGradient(0, sy - 50 * u, 0, sy);
+  g.addColorStop(0, '#34e0ff00'); g.addColorStop(1, '#34e0ff1f');
+  ctx.fillStyle = g; ctx.fillRect(0, sy - 50 * u, W, 50 * u);
+
+  const vt = tracks.filter(vis).sort((a, b) => a.bad - b.bad);
+  let alarm = null;
+  for (const t of vt) {
+    pos(t, now);
+    const bad = t.bad, col = bad ? RED : t.sus ? AMB : CY, x = t.dx, y = t.dy, w = t.dw, h = t.dh, X = x + w / 2, Y = y + h / 2;
+    const base = t.miss ? Math.max(0.35, 1 - (now - t.t) / 900) : 1;
+    if (bad) alarm = alarm || t;
+    ctx.strokeStyle = col;
+
+    const n = t.trail.length; ctx.lineWidth = u * (bad ? 3 : 1.4);
+    for (let i = 1; i < n; i++) {
+      ctx.globalAlpha = base * 0.9 * i / n;
+      ctx.beginPath(); ctx.moveTo(...t.trail[i - 1]); ctx.lineTo(...t.trail[i]); ctx.stroke();
+    }
+    ctx.globalAlpha = base;
+
+    const sp = Math.hypot(t.vx, t.vy);
+    if (sp > W * 0.08) {
+      const ex = X + t.vx * 0.35, ey = Y + t.vy * 0.35, a = Math.atan2(t.vy, t.vx);
+      ctx.lineWidth = u * 2; ctx.beginPath();
+      ctx.moveTo(X, Y); ctx.lineTo(ex, ey);
+      ctx.lineTo(ex - 12 * u * Math.cos(a - 0.5), ey - 12 * u * Math.sin(a - 0.5));
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - 12 * u * Math.cos(a + 0.5), ey - 12 * u * Math.sin(a + 0.5));
+      ctx.stroke();
+    }
+
+    
+    if (bad) {
+      const k = Math.min(1, (now - t.lock) / 380), e = 1 - Math.pow(1 - k, 3), pad = (4 + (1 - e) * 46) * u;
+      ctx.fillStyle = 'rgba(255,42,68,.16)'; ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = base * 0.25; ctx.lineWidth = u * 12; ctx.strokeRect(x, y, w, h); ctx.globalAlpha = base;
+      ctx.lineWidth = u * (3 + Math.sin(now / 110) * 1.2); ctx.strokeRect(x, y, w, h);
+      ctx.lineWidth = u * 5; brackets(x - pad, y - pad, w + 2 * pad, h + 2 * pad, Math.min(w, h) * 0.35 + 10 * u);
+      ctx.lineWidth = u * 2; ctx.setLineDash([8 * u, 8 * u]); ctx.lineDashOffset = -now / 40;
+      ctx.beginPath(); ctx.arc(X, Y, Math.max(w, h) * 0.62 + 8 * u + (1 - e) * 40 * u, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = u * 1.5; ctx.beginPath();
+      ctx.moveTo(X - 9 * u, Y); ctx.lineTo(X + 9 * u, Y); ctx.moveTo(X, Y - 9 * u); ctx.lineTo(X, Y + 9 * u);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = t.sus ? 'rgba(255,193,77,.1)' : 'rgba(52,224,255,.07)'; ctx.fillRect(x, y, w, h);
+      ctx.lineWidth = u * 1.8; brackets(x, y, w, h, Math.min(w, h) * 0.25 + 6 * u);
+    }
+    ctx.shadowBlur = 0;
+    if (bad) {
+      ctx.font = `800 ${12 * u}px system-ui,sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillStyle = col; ctx.fillText('KİLİTLENDİ', x, Math.min(H - 6 * u, y + h + 16 * u));
+    }
+    label((t.sus ? 'ŞÜPHELİ · ' : '') + (TR[t.name] || t.name) + ' %' + Math.round(Math.min(1, t.score) * 100) + (bad ? ' · HIZ ' + Math.round(sp / W * 100) : ''), col, bad, u, x, y, t.score);
+  }
+  ctx.globalAlpha = 1;
+  radar(vt, now, W, H, u);
+
+  if (alarm) {
+    const p = Math.sin(now / 150), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    vg.addColorStop(0, 'rgba(255,0,40,0)'); vg.addColorStop(1, `rgba(255,0,40,${0.28 + p * 0.12})`);
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    const bh = 36 * u, by = H * 0.08;
+    ctx.fillStyle = p > 0 ? RED : '#a80019'; ctx.fillRect(0, by, W, bh);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `800 ${20 * u}px system-ui,sans-serif`;
+    ctx.fillText('⚠ ' + TR[alarm.name] + ' ALGILANDI', W / 2, by + bh / 2);
+    ctx.textAlign = 'left';
+  }
+}
+
+function counts(now) {
+  const m = {};
+  tracks.forEach(t => { if (vis(t) && now - t.t < 500) m[t.name] = (m[t.name] || 0) + 1; });
+  $('cnt').innerHTML = Object.entries(m).map(([k, n]) =>
+    `<span class="chip${DANGER.has(k) ? ' bad' : ''}">${TR[k] || k} ×${n}</span>`).join('') || '<span class="dim">Nesne yok</span>';
+}
+
+function spark() {
+  const s = $('spark'), g = s.getContext('2d'), w = s.width, h = s.height, mx = Math.max(30, ...hist);
+  g.clearRect(0, 0, w, h); g.strokeStyle = CY; g.lineWidth = 2; g.beginPath();
+  hist.forEach((f, i) => { const x = i / 59 * w, y = h - 4 - f / mx * (h - 8); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  g.stroke();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  draw(now);
+  const bad = tracks.some(t => t.bad), sus = tracks.some(t => t.sus), tgt = bad ? 100 : sus ? 40 : 0;
+  threat += (tgt - threat) * (tgt > threat ? 0.15 : 0.05);
+  $('tm').style.width = threat + '%';
+  const lv = threat < 15 ? 'GÜVENLİ' : threat < 60 ? 'DİKKAT' : 'TEHLİKE';
+  if (lv !== lastLv) {
+    lastLv = lv; $('tl').textContent = lv;
+    $('tl').style.color = lv === 'GÜVENLİ' ? '#2ee6a6' : lv === 'DİKKAT' ? '#ffc14d' : RED;
+  }
+  if (bad) beep();
+  if (now - lastCnt > 500) { lastCnt = now; counts(now); }
+  rafN++;
+  if (now - dT0 > 1000) {
+    const el = now - dT0, rf = Math.round(rafN * 1000 / el), f = Math.round(dCount * 1000 / el);
+    $('fps').textContent = 'Ekran ' + rf + ' · Tespit ' + f;
+    hist.push(f); if (hist.length > 60) hist.shift(); spark();
+    // Akıcılık koruması: ekran FPS'i düşerse bir alt moda in (sekme arka plandayken sayma)
+    const need = Math.max(18, Math.min(refreshHz, 60) * 0.7);
+    slow = el < 1500 && autoPerf && !switching && mode !== 'fast' && dCount > 1 && rf < need ? slow + 1 : 0;
+    if (slow >= 2) { slow = 0; setMode(mode === 'ultra' ? 'acc' : 'fast', true); }
+    rafN = 0; dCount = 0; dMs = 0; dT0 = now;
+  }
+}
+
+function shot() {
+  const o = document.createElement('canvas');
+  o.width = c.width; o.height = c.height;
+  const x = o.getContext('2d');
+  x.drawImage(v, 0, 0, o.width, o.height); x.drawImage(c, 0, 0);
+  o.toBlob(b => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = 'tespit-' + Date.now() + '.png'; a.click();
+  }, 'image/png');
+  $('fl').classList.add('on');
+  setTimeout(() => $('fl').classList.remove('on'), 60);
+}
+
+$('go').onclick = async () => {
+  const step = t => $('msg').textContent = t;
+  $('go').disabled = true;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    ac.resume?.();
+    refreshHz = await measureHz();
+    step('Kamera açılıyor…');
+    { const q = new URLSearchParams(location.search).get('src'); await (q ? startNet(q) : startCam()); }
+    await listSources().catch(() => {});
+    step('Yapay zeka motoru hazırlanıyor…'); vision = vision || await FilesetResolver.forVisionTasks(WASM);
+    step('Model yükleniyor…'); await loadDet(MODEL_OF[mode]); curModel = MODEL_OF[mode];
+    for (let i = 0; i < 3; i++) { try { det.detectForVideo(v, performance.now()); } catch (_) {} }
+    status();
+    $('start').classList.add('off'); setTimeout(() => $('start').remove(), 600);
+    if (!started) { started = true; pump(); requestAnimationFrame(frame); try { navigator.wakeLock?.request('screen').catch(() => {}); } catch (_) {} }
+  } catch (e) {
+    step(e.name === 'NotAllowedError'
+      ? 'Kamera izni verilmedi. Tarayıcı ayarlarından izin verip tekrar dene.'
+      : 'Hata: ' + e.message);
+    $('go').disabled = false;
+  }
+};
+
+$('flip').onclick = async () => {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  try { await startCam(); await listSources(); } catch (e) { $('st').textContent = 'Kamera açılamadı'; }
+};
+
+async function setMode(next, auto) {
+  if (switching) return;
+  switching = true;
+  const prev = mode;
+  $('mode').disabled = true;
+  try {
+    if (MODEL_OF[next] !== curModel) { await loadDet(MODEL_OF[next]); curModel = MODEL_OF[next]; }
+    mode = next; hist = [];
+    if (auto) log('Performans için ' + MODE_LABEL[next].replace(/^\S+\s/, '') + ' moda geçildi');
+  } catch (e) {
+    try { if (MODEL_OF[prev] !== curModel) { await loadDet(MODEL_OF[prev]); curModel = MODEL_OF[prev]; } } catch (_) {}
+  }
+  $('mode').textContent = MODE_LABEL[mode]; $('mode').disabled = false;
+  switching = false; status();
+}
+$('mode').onclick = () => { setMode({fast: 'acc', acc: 'ultra', ultra: 'fast'}[mode]); };
+
+function measureHz() {
+  return Promise.race([
+    new Promise(res => { let n = 0, t0 = 0; const f = t => { if (!t0) t0 = t; if (++n >= 30) res(1000 * (n - 1) / (t - t0)); else requestAnimationFrame(f); }; requestAnimationFrame(f); }),
+    new Promise(res => setTimeout(() => res(60), 1500))
+  ]);
+}
+
+function say(txt) {
+  const n = performance.now();
+  if (!soundOn || !('speechSynthesis' in window) || n - lastSay < 8000) return;
+  lastSay = n;
+  const u = new SpeechSynthesisUtterance(txt); u.lang = 'tr-TR'; u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+// Alarm anında kanıt fotoğrafı (yalnızca tarayıcı hafızasında, tıklayınca indirilir)
+const alarms = [];
+function addAlarm() {
+  const o = document.createElement('canvas'), k = Math.min(1, 960 / c.width);
+  o.width = c.width * k; o.height = c.height * k;
+  const x = o.getContext('2d');
+  x.drawImage(v, 0, 0, o.width, o.height); x.drawImage(c, 0, 0, o.width, o.height);
+  const t = new Date().toLocaleTimeString('tr-TR');
+  o.toBlob(b => {
+    if (!b) return;
+    alarms.unshift({url: URL.createObjectURL(b), t});
+    while (alarms.length > 4) URL.revokeObjectURL(alarms.pop().url);
+    const box = $('alarms'); box.innerHTML = '';
+    alarms.forEach(a => {
+      const l = document.createElement('a'), i = document.createElement('img');
+      l.href = a.url; l.download = 'alarm-' + a.t.replace(/:/g, '') + '.jpg'; l.title = a.t;
+      i.src = a.url; l.append(i); box.append(l);
+    });
+  }, 'image/jpeg', 0.85);
+}
+
+// Temiz ekran (sunum): H tuşu veya çift tıklama
+const toggleClean = () => document.body.classList.toggle('clean');
+addEventListener('keydown', e => { if (e.key === 'h' || e.key === 'H') toggleClean(); });
+addEventListener('dblclick', e => { if (!e.target.closest('#panel,#bar,#start,select,button')) toggleClean(); });
+
+$('snd').onclick = () => { soundOn = !soundOn; $('snd').textContent = soundOn ? '🔊' : '🔇'; };
+$('shot').onclick = shot;
+$('pn').onclick = () => $('panel').classList.toggle('open');
+$('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+$('sens').oninput = e => { thr = e.target.value / 100; $('sv').textContent = '%' + e.target.value; };
+$('src').onchange = async e => {
+  const val = e.target.value;
+  try {
+    if (val === 'net') {
+      let last = ''; try { last = localStorage.getItem('netUrl') || ''; } catch (_) {}
+      const u = prompt('Akış adresi (örn. http://SUNUCU:8888/okul/index.m3u8)', last);
+      if (!u) return listSources();
+      try { localStorage.setItem('netUrl', u); } catch (_) {}
+      await startNet(u);
+    } else await startCam(val.slice(4));
+  } catch (err) { $('st').textContent = 'Kaynak açılamadı: ' + err.message; }
+};
+</script>
+</body>
+
+</html>
